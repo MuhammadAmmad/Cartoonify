@@ -7,12 +7,30 @@ import java.util.Arrays;
 
 import javax.imageio.ImageIO;
 
+import org.bridj.Pointer;
+
+import com.nativelibs4java.opencl.CLBuffer;
+import com.nativelibs4java.opencl.CLBuildException;
+import com.nativelibs4java.opencl.CLContext;
+import com.nativelibs4java.opencl.CLDevice;
+import com.nativelibs4java.opencl.CLEvent;
+import com.nativelibs4java.opencl.CLKernel;
+import com.nativelibs4java.opencl.CLMem;
+import com.nativelibs4java.opencl.CLPlatform;
+import com.nativelibs4java.opencl.CLProgram;
+import com.nativelibs4java.opencl.CLQueue;
+import com.nativelibs4java.opencl.CLMem.MapFlags;
+import com.nativelibs4java.opencl.CLPlatform.DeviceFeature;
+import com.nativelibs4java.opencl.JavaCL;
+import com.nativelibs4java.util.IOUtils;
+
 /**
- * Processes lots of photos and uses edge detection and colour reduction to make them cartoon-like.
- *
- * Run <code>main</code> to see the usage message.
- * Each input image, eg. xyz.jpg, is processed and then output to a file called xyz_cartoon.jpg.
- *
+ * Processes lots of photos and uses edge detection and colour reduction to make
+ * them cartoon-like.
+ * 
+ * Run <code>main</code> to see the usage message. Each input image, eg.
+ * xyz.jpg, is processed and then output to a file called xyz_cartoon.jpg.
+ * 
  * @author Mark.Utting
  */
 public class Cartoonify {
@@ -20,7 +38,10 @@ public class Cartoonify {
 	/** The number of bits used for each colour channel. */
 	public static final int COLOUR_BITS = 8;
 
-	/** Each colour channel contains a colour value from 0 up to COLOUR_MASK (inclusive). */
+	/**
+	 * Each colour channel contains a colour value from 0 up to COLOUR_MASK
+	 * (inclusive).
+	 */
 	public static final int COLOUR_MASK = (1 << COLOUR_BITS) - 1; // eg. 0xFF
 
 	/** An all-black pixel. */
@@ -29,7 +50,8 @@ public class Cartoonify {
 	/** An all-white pixel. */
 	public final int white = createPixel(COLOUR_MASK, COLOUR_MASK, COLOUR_MASK);
 
-	// colours are packed into an int as four 8-bit fields: (0, red, green, blue).
+	// colours are packed into an int as four 8-bit fields: (0, red, green,
+	// blue).
 	/** The number of the red channel. */
 	public static final int RED = 2;
 
@@ -39,28 +61,33 @@ public class Cartoonify {
 	/** The number of the blue channel. */
 	public static final int BLUE = 0;
 
-
 	/** The width of all the images. */
 	private int width;
 
 	/** The height of all the images. */
 	private int height;
 
-	/** A stack of images, with the current one at position <code>currImage</code>. */
+	/**
+	 * A stack of images, with the current one at position
+	 * <code>currImage</code>.
+	 */
 	private int[][] pixels;
 
-	/** The position of the current image in the pixels array. -1 means no current image. */
+	/**
+	 * The position of the current image in the pixels array. -1 means no
+	 * current image.
+	 */
 	private int currImage;
 
 	/**
 	 * Create a new photo-to-cartoon processor.
-	 *
+	 * 
 	 * The initial stack of images will be empty, so <code>loadPhoto(...)</code>
 	 * should typically be the first method called.
 	 */
 	public Cartoonify() {
 		pixels = new int[4][];
-		currImage = -1;  // no image loaded initially
+		currImage = -1; // no image loaded initially
 	}
 
 	/**
@@ -73,7 +100,7 @@ public class Cartoonify {
 
 	/**
 	 * Returns an internal representation of all the pixels.
-	 *
+	 * 
 	 * @return all the pixels in the current image that is on top of the stack.
 	 */
 	protected int[] currentImage() {
@@ -82,8 +109,10 @@ public class Cartoonify {
 
 	/**
 	 * Push the given image onto the stack of images.
-	 *
-	 * @param newPixels must be the same size (width * height pixels), and contain RGB pixels.
+	 * 
+	 * @param newPixels
+	 *            must be the same size (width * height pixels), and contain RGB
+	 *            pixels.
 	 */
 	protected void pushImage(int[] newPixels) {
 		assert newPixels.length == width * height;
@@ -97,7 +126,7 @@ public class Cartoonify {
 
 	/**
 	 * Remove the current image off the stack.
-	 *
+	 * 
 	 * @return all the pixels in that image.
 	 */
 	protected int[] popImage() {
@@ -108,12 +137,14 @@ public class Cartoonify {
 
 	/**
 	 * Push a copy of the given image onto the stack.
-	 *
-	 * Negative numbers are relative to the top of the stack, so -1 means duplicate
-	 * the current top of the stack.  Zero or positive is relative to the bottom of
-	 * the stack, so 0 means duplicate the original photo.
-	 *
-	 * @param which the number of the photo to duplicate. From <code>-(currImage+1) .. currImage</code>.
+	 * 
+	 * Negative numbers are relative to the top of the stack, so -1 means
+	 * duplicate the current top of the stack. Zero or positive is relative to
+	 * the bottom of the stack, so 0 means duplicate the original photo.
+	 * 
+	 * @param which
+	 *            the number of the photo to duplicate. From
+	 *            <code>-(currImage+1) .. currImage</code>.
 	 */
 	public void cloneImage(int which) {
 		final int stackPos = which >= 0 ? which : (currImage + which + 1);
@@ -131,13 +162,14 @@ public class Cartoonify {
 
 	/**
 	 * Loads a photo from the given file.
-	 *
+	 * 
 	 * If the stack of photos is empty, this also sets the width and height of
 	 * images being processed, otherwise it checks that the new image is the
 	 * same size as the current images.
-	 *
+	 * 
 	 * @param filename
-	 * @throws IOException if the image cannot be read or is the wrong size.
+	 * @throws IOException
+	 *             if the image cannot be read or is the wrong size.
 	 */
 	public void loadPhoto(String filename) throws IOException {
 		BufferedImage image = ImageIO.read(new File(filename));
@@ -152,14 +184,18 @@ public class Cartoonify {
 		}
 		int[] newPixels = image.getRGB(0, 0, width, height, null, 0, width);
 		for (int i = 0; i < newPixels.length; i++) {
-			newPixels[i] &= 0x00FFFFFF; // remove any alpha channel, since we will use RGB only
+			newPixels[i] &= 0x00FFFFFF; // remove any alpha channel, since we
+										// will use RGB only
 		}
 		pushImage(newPixels);
 	}
 
 	/**
 	 * Save the current photo to disk with the given filename.
-	 * @param newName the extension of this name (eg. .jpg) determines the output file type.
+	 * 
+	 * @param newName
+	 *            the extension of this name (eg. .jpg) determines the output
+	 *            file type.
 	 * @throws IOException
 	 */
 	public void savePhoto(String newName) throws IOException {
@@ -205,12 +241,11 @@ public class Cartoonify {
 		pushImage(newPixels);
 	}
 
-	public static final int[] GAUSSIAN_FILTER = {
-		2,  4,  5,  4,  2, // sum=17
-		4,  9, 12,  9,  4, // sum=38
-		5, 12, 15, 12,  5, // sum=49
-		4,  9, 12,  9,  4, // sum=38
-		2,  4,  5,  4,  2  // sum=17
+	public static final int[] GAUSSIAN_FILTER = { 2, 4, 5, 4, 2, // sum=17
+			4, 9, 12, 9, 4, // sum=38
+			5, 12, 15, 12, 5, // sum=49
+			4, 9, 12, 9, 4, // sum=38
+			2, 4, 5, 4, 2 // sum=17
 	};
 	public static final double GAUSSIAN_SUM = 159.0;
 
@@ -218,50 +253,163 @@ public class Cartoonify {
 		int[] newPixels = new int[width * height];
 		for (int y = 0; y < height; y++) {
 			for (int x = 0; x < width; x++) {
-				int red = clamp(convolution(x, y, GAUSSIAN_FILTER, RED) / GAUSSIAN_SUM);
-				int green = clamp(convolution(x, y, GAUSSIAN_FILTER, GREEN) / GAUSSIAN_SUM);
-				int blue = clamp(convolution(x, y, GAUSSIAN_FILTER, BLUE) / GAUSSIAN_SUM);
+				int red = clamp(convolution(x, y, GAUSSIAN_FILTER, RED)
+						/ GAUSSIAN_SUM);
+				int green = clamp(convolution(x, y, GAUSSIAN_FILTER, GREEN)
+						/ GAUSSIAN_SUM);
+				int blue = clamp(convolution(x, y, GAUSSIAN_FILTER, BLUE)
+						/ GAUSSIAN_SUM);
 				newPixels[y * width + x] = createPixel(red, green, blue);
 			}
 		}
 		pushImage(newPixels);
 	}
 
-	public static final int[] SOBEL_VERTICAL_FILTER = {
-		-1,  0, +1,
-		-2,  0, +2,
-		-1,  0, +1
-	};
+	public void gauBlurSobEdgeAndReduceColors(int threshold, int numPerChannel,
+			boolean debug, String baseName, String extn)
+			throws CLBuildException, IOException {
+		final int tasks = width * height;
+		final int workGroupsize = 512;
+		int roundedTasksSize;
+		if (tasks % workGroupsize == 0) {
+			roundedTasksSize=tasks;
+		} else {
+			roundedTasksSize = (tasks / workGroupsize + 1) * workGroupsize;
+		}
+		long start, end, start1, end1;
+		start1 = System.currentTimeMillis();
 
-	public static final int[] SOBEL_HORIZONTAL_FILTER = {
-		+1, +2, +1,
-		0,   0,  0,
-		-1, -2, -1
-	};
+		System.out.println("task size =" + tasks);
+		System.out.println("rounded TasksSize =" + roundedTasksSize);
+
+		start = System.currentTimeMillis();
+
+		CLContext context = JavaCL.createBestContext(DeviceFeature.GPU);
+		System.out.println("best context has device[0]="
+				+ context.getDevices()[0]);
+
+		CLQueue queue = context.createDefaultOutOfOrderQueue();
+
+		CLBuffer<Integer> memInImage = context.createIntBuffer(
+				CLMem.Usage.Output, tasks);
+		Pointer<Integer> imageBuff = memInImage.map(queue, MapFlags.Write);
+		CLBuffer<Integer> memGauOut = context.createIntBuffer(
+				CLMem.Usage.Output, tasks);
+		CLBuffer<Integer> memSobOut = context.createIntBuffer(
+				CLMem.Usage.Output, tasks);
+		CLBuffer<Integer> memReduOut = context.createIntBuffer(
+				CLMem.Usage.Output, tasks);
+
+		imageBuff.setArray(currentImage());
+		// / Release the input buffers
+		memInImage.unmap(queue, imageBuff);
+
+		CLProgram program = context.createProgram(
+				IOUtils.readTextClose(CartoonifyMKI.class
+						.getResourceAsStream("CartoonifyKernels.cl"))).build();
+
+		CLKernel kernelGau = program.createKernel("gaussianBlur", memInImage,
+				height, width, memGauOut);
+		CLKernel kerneSob = program.createKernel("sobelEdgeDetect", memGauOut,
+				height, width, threshold, memSobOut);
+		CLKernel kerneRedub = program.createKernel("reduceColours", memInImage,
+				height, width, numPerChannel, memReduOut);
+		end = System.currentTimeMillis();
+		if (debug) {
+			System.out.println(" init GPU and memory took  " + (end - start)
+					/ 1e3 + " secs.");
+		}
+
+		start = System.currentTimeMillis();
+		CLEvent gauEvent = kernelGau.enqueueNDRange(queue,
+				new int[] { roundedTasksSize }, new int[] { workGroupsize });
+		kerneSob.enqueueNDRange(queue, new int[] { roundedTasksSize },
+				new int[] { workGroupsize }, gauEvent);
+		kerneRedub.enqueueNDRange(queue, new int[] { roundedTasksSize },
+				new int[] { workGroupsize });
+
+		queue.finish();
+		end = System.currentTimeMillis();
+		if (debug) {
+			System.out.println(" GPU execution body took  " + (end - start)
+					/ 1e3 + " secs.");
+		}
+
+		start = System.currentTimeMillis();
+		// int[] gauPixels = (int[]) memGauOut.read(queue).getArray();
+		int[] sobPixels = (int[]) memSobOut.read(queue).getArray();
+		int[] reduPixels = (int[]) memReduOut.read(queue).getArray();
+
+		end = System.currentTimeMillis();
+		if (debug) {
+			System.out.println(" retrieve output from GPU memory took  "
+					+ (end - start) / 1e3 + " secs.");
+		}
+
+		end1 = System.currentTimeMillis();
+		if (debug) {
+			System.out
+					.println(" GPU accelerated gauBlurSobEdgeAndReduceColors intotal took "
+							+ (end1 - start1) / 1e3 + " secs.");
+		}
+		memSobOut.release();
+		/*
+		 * pushImage(gauPixels); if (debug) { savePhoto(baseName + "_blurred" +
+		 * extn); }
+		 */
+		pushImage(reduPixels);
+		if (debug) {
+			savePhoto(baseName + "_colours" + extn);
+		}
+		pushImage(sobPixels);
+		if (debug) {
+			savePhoto(baseName + "_edges" + extn);
+		}
+
+		// System.gc();
+
+	}
+
+	public static final int[] SOBEL_VERTICAL_FILTER = { -1, 0, +1, -2, 0, +2,
+			-1, 0, +1 };
+
+	public static final int[] SOBEL_HORIZONTAL_FILTER = { +1, +2, +1, 0, 0, 0,
+			-1, -2, -1 };
 
 	/**
-	 * Detects edges in the current image and then adds a image where black pixels
-	 * mark the edges and the other pixels are all white.
-	 *
-	 * @param threshold determines how aggressive the edge-detection is.  Small values (eg. 50)
-	 *        mean very aggressive, while large values (eg. 1000) generate few edges.
+	 * Detects edges in the current image and then adds a image where black
+	 * pixels mark the edges and the other pixels are all white.
+	 * 
+	 * @param threshold
+	 *            determines how aggressive the edge-detection is. Small values
+	 *            (eg. 50) mean very aggressive, while large values (eg. 1000)
+	 *            generate few edges.
 	 */
 	public void sobelEdgeDetect(int threshold) {
 		int[] newPixels = new int[width * height];
 		for (int y = 0; y < height; y++) {
 			for (int x = 0; x < width; x++) {
 				int redVertical = convolution(x, y, SOBEL_VERTICAL_FILTER, RED);
-				int greenVertical = convolution(x, y, SOBEL_VERTICAL_FILTER, GREEN);
-				int blueVertical = convolution(x, y, SOBEL_VERTICAL_FILTER, BLUE);
-				int redHorizontal = convolution(x, y, SOBEL_HORIZONTAL_FILTER, RED);
-				int greenHorizontal = convolution(x, y, SOBEL_HORIZONTAL_FILTER, GREEN);
-				int blueHorizontal = convolution(x, y, SOBEL_HORIZONTAL_FILTER, BLUE);
-				int verticalGradient = Math.abs(redVertical) + Math.abs(greenVertical) + Math.abs(blueVertical);
-				int horizontalGradient = Math.abs(redHorizontal) + Math.abs(greenHorizontal) + Math.abs(blueHorizontal);
-				// we could take use sqrt(vertGrad^2 + horizGrad^2), but simple addition catches most edges.
+				int greenVertical = convolution(x, y, SOBEL_VERTICAL_FILTER,
+						GREEN);
+				int blueVertical = convolution(x, y, SOBEL_VERTICAL_FILTER,
+						BLUE);
+				int redHorizontal = convolution(x, y, SOBEL_HORIZONTAL_FILTER,
+						RED);
+				int greenHorizontal = convolution(x, y,
+						SOBEL_HORIZONTAL_FILTER, GREEN);
+				int blueHorizontal = convolution(x, y, SOBEL_HORIZONTAL_FILTER,
+						BLUE);
+				int verticalGradient = Math.abs(redVertical)
+						+ Math.abs(greenVertical) + Math.abs(blueVertical);
+				int horizontalGradient = Math.abs(redHorizontal)
+						+ Math.abs(greenHorizontal) + Math.abs(blueHorizontal);
+				// we could take use sqrt(vertGrad^2 + horizGrad^2), but simple
+				// addition catches most edges.
 				int totalGradient = verticalGradient + horizontalGradient;
 				if (totalGradient >= threshold) {
-					newPixels[y * width + x] = black; // we colour the edges black
+					newPixels[y * width + x] = black; // we colour the edges
+														// black
 				} else {
 					newPixels[y * width + x] = white;
 				}
@@ -271,9 +419,11 @@ public class Cartoonify {
 	}
 
 	/**
-	 * Adds a new image that is the same as the current image but with fewer colours.
+	 * Adds a new image that is the same as the current image but with fewer
+	 * colours.
 	 * 
-	 * @param numPerChannel the desired number of values in EACH colour channel.
+	 * @param numPerChannel
+	 *            the desired number of values in EACH colour channel.
 	 */
 	public void reduceColours(int numPerChannel) {
 		assert 0 < numPerChannel && numPerChannel <= 256;
@@ -293,22 +443,25 @@ public class Cartoonify {
 	}
 
 	/**
-	 * Converts the given colour value (eg. 0..255) to an approximate colour value.
-	 * This is a helper method for reducing the number of colours in the image.
+	 * Converts the given colour value (eg. 0..255) to an approximate colour
+	 * value. This is a helper method for reducing the number of colours in the
+	 * image.
 	 * 
 	 * For example, if numPerChannel is 3, then:
 	 * <ul>
-	 *   <li>0..85 will be mapped to 0;</li>
-	 *   <li>86..170 will be mapped to 127;</li>
-	 *   <li>171..255 will be mapped to 255;</li>
+	 * <li>0..85 will be mapped to 0;</li>
+	 * <li>86..170 will be mapped to 127;</li>
+	 * <li>171..255 will be mapped to 255;</li>
 	 * </ul>
-	 * So the output colour values always start at 0, end at COLOUR_MASK, and any other
-	 * values are spread out evenly in between.  This requires some careful maths, to
-	 * avoid overflow and to divide the input colours up into <code>numPerChannel</code>
-	 * equal-sized buckets.
-	 *
-	 * @param colourValue 0 .. COLOUR_MASK
-	 * @param numPerChannel how many colours we want in the output.
+	 * So the output colour values always start at 0, end at COLOUR_MASK, and
+	 * any other values are spread out evenly in between. This requires some
+	 * careful maths, to avoid overflow and to divide the input colours up into
+	 * <code>numPerChannel</code> equal-sized buckets.
+	 * 
+	 * @param colourValue
+	 *            0 .. COLOUR_MASK
+	 * @param numPerChannel
+	 *            how many colours we want in the output.
 	 * @return a discrete colour value (0..COLOUR_MASK).
 	 */
 	int quantizeColour(int colourValue, int numPerChannel) {
@@ -344,33 +497,44 @@ public class Cartoonify {
 
 	/**
 	 * This applies the given N*N filter around the pixel (xCentre,yCentre).
-	 *
-	 * Applying a filter means multiplying each nearby pixel (within the N*N box)
-	 * by the corresponding factor in the filter array (which is conceptually a 2D matrix).
 	 * 
-	 * This method does not change the current image at all.  It just multiplies
-	 * the filter matrix by the colour values of the pixels around (xCentre,yCentre)
-	 * and returns the resulting (integer) value.
-	 *
-	 * This method is 'package-private' (the default protection) so that the tests can test it.
+	 * Applying a filter means multiplying each nearby pixel (within the N*N
+	 * box) by the corresponding factor in the filter array (which is
+	 * conceptually a 2D matrix).
+	 * 
+	 * This method does not change the current image at all. It just multiplies
+	 * the filter matrix by the colour values of the pixels around
+	 * (xCentre,yCentre) and returns the resulting (integer) value.
+	 * 
+	 * This method is 'package-private' (the default protection) so that the
+	 * tests can test it.
 	 * 
 	 * @param xCentre
 	 * @param yCentre
-	 * @param filter a 2D square matrix, laid out in row-major order in a 1D array.
-	 * @param colour which colour to apply the filter to.
-	 * @return the sum of multiplying the requested colour of each pixel by its filter factor.
+	 * @param filter
+	 *            a 2D square matrix, laid out in row-major order in a 1D array.
+	 * @param colour
+	 *            which colour to apply the filter to.
+	 * @return the sum of multiplying the requested colour of each pixel by its
+	 *         filter factor.
 	 */
 	int convolution(int xCentre, int yCentre, int[] filter, int colour) {
 		int sum = 0;
 		// find the width and height of the filter matrix, which must be square.
 		int filterSize = 1;
-		while (filterSize * filterSize < filter.length) {
-			filterSize++;
-		}
+
+		// Change made here
+		// while (filterSize * filterSize < filter.length) {
+		// filterSize++;
+		// }
+		filterSize = (int) Math.sqrt(filter.length);
+
 		if (filterSize * filterSize != filter.length) {
-			throw new IllegalArgumentException("non-square filter: " + Arrays.toString(filter));
+			throw new IllegalArgumentException("non-square filter: "
+					+ Arrays.toString(filter));
 		}
 		final int filterHalf = filterSize / 2;
+
 		for (int filterY = 0; filterY < filterSize; filterY++) {
 			int y = wrap(yCentre + filterY - filterHalf, height);
 			for (int filterX = 0; filterX < filterSize; filterX++) {
@@ -380,20 +544,24 @@ public class Cartoonify {
 				sum += colourValue(rgb, colour) * filterVal;
 			}
 		}
-		// System.out.println("convolution(" + xCentre + ", " + yCentre + ") = " + sum);
+		// System.out.println("convolution(" + xCentre + ", " + yCentre + ") = "
+		// + sum);
 		return sum;
 	}
 
 	/**
 	 * Restricts an index to be within the image.
-	 *
+	 * 
 	 * Different strategies are possible for this, such as wrapping around,
 	 * clamping to 0 and size-1, or reflecting off the edge.
 	 * 
 	 * The current implementation reflects off each edge.
 	 * 
-	 * @param pos an index that might be slightly outside the image boundaries.
-	 * @param size the width of the image (for x value) or the height (for y values).
+	 * @param pos
+	 *            an index that might be slightly outside the image boundaries.
+	 * @param size
+	 *            the width of the image (for x value) or the height (for y
+	 *            values).
 	 * @return the new index, which is in the range <code>0 .. size-1</code>.
 	 */
 	public int wrap(int pos, int size) {
@@ -409,9 +577,11 @@ public class Cartoonify {
 
 	/**
 	 * Clamp a colour value to be within the allowable range for each colour.
-	 *
-	 * @param value a floating point colour value, which may be out of range.
-	 * @return an integer colour value, in the range <code>0 .. COLOUR_MASK</code>.
+	 * 
+	 * @param value
+	 *            a floating point colour value, which may be out of range.
+	 * @return an integer colour value, in the range
+	 *         <code>0 .. COLOUR_MASK</code>.
 	 */
 	public int clamp(double value) {
 		int result = (int) (value + 0.5); // round to nearest integer
@@ -426,11 +596,14 @@ public class Cartoonify {
 
 	/**
 	 * Get a pixel from within the current photo.
-	 *
-	 * @param x must be in the range <code>0 .. width-1</code>.
-	 * @param y must be in the range <code>0 .. height-1</code>.
+	 * 
+	 * @param x
+	 *            must be in the range <code>0 .. width-1</code>.
+	 * @param y
+	 *            must be in the range <code>0 .. height-1</code>.
 	 * @return the requested pixel of the current image, in RGB format.
-	 * @throws ArrayOutOfBounds exception if there is no current image.
+	 * @throws ArrayOutOfBounds
+	 *             exception if there is no current image.
 	 */
 	public int pixel(int x, int y) {
 		return currentImage()[y * width + x];
@@ -438,9 +611,11 @@ public class Cartoonify {
 
 	/**
 	 * Extract a given colour channel out of the given pixel.
-	 *
-	 * @param pixel an RGB value.
-	 * @param colour one of RED, GREEN or BLUE.
+	 * 
+	 * @param pixel
+	 *            an RGB value.
+	 * @param colour
+	 *            one of RED, GREEN or BLUE.
 	 * @return a colour value, ranging from 0 .. COLOUR_MASK.
 	 */
 	public final int colourValue(int pixel, int colour) {
@@ -449,8 +624,9 @@ public class Cartoonify {
 
 	/**
 	 * Get the red value of the given pixel.
-	 *
-	 * @param pixel an RGB value.
+	 * 
+	 * @param pixel
+	 *            an RGB value.
 	 * @return a value in the range 0 .. COLOUR_MASK
 	 */
 	public final int red(int pixel) {
@@ -459,8 +635,9 @@ public class Cartoonify {
 
 	/**
 	 * Get the green value of the given pixel.
-	 *
-	 * @param pixel an RGB value.
+	 * 
+	 * @param pixel
+	 *            an RGB value.
 	 * @return a value in the range 0 .. COLOUR_MASK
 	 */
 	public final int green(int pixel) {
@@ -469,8 +646,9 @@ public class Cartoonify {
 
 	/**
 	 * Get the blue value of the given pixel.
-	 *
-	 * @param pixel an RGB value.
+	 * 
+	 * @param pixel
+	 *            an RGB value.
 	 * @return a value in the range 0 .. COLOUR_MASK
 	 */
 	public final int blue(int pixel) {
@@ -479,7 +657,7 @@ public class Cartoonify {
 
 	/**
 	 * Constructs one integer RGB pixel from the individual components.
-	 *
+	 * 
 	 * @param redValue
 	 * @param greenValue
 	 * @param blueValue
@@ -489,12 +667,13 @@ public class Cartoonify {
 		assert 0 <= redValue && redValue <= COLOUR_MASK;
 		assert 0 <= greenValue && greenValue <= COLOUR_MASK;
 		assert 0 <= blueValue && blueValue <= COLOUR_MASK;
-		return (redValue << (2 * COLOUR_BITS)) + (greenValue << COLOUR_BITS) + blueValue;
+		return (redValue << (2 * COLOUR_BITS)) + (greenValue << COLOUR_BITS)
+				+ blueValue;
 	}
 
 	/**
 	 * Run this with no arguments to see the usage message.
-	 *
+	 * 
 	 * @param args
 	 * @throws IOException
 	 */
@@ -503,11 +682,17 @@ public class Cartoonify {
 		int numColours = 3;
 		int currArg = 0;
 		boolean debug = false;
+		boolean gpuActive = false;
 		if (args.length == 0) {
-			System.err.println("Arguments: [-d] [-e EdgeThreshold] [-c NumColours] photo1.jpg photo2.jpg ...");
-			System.err.println("  -d means turn on debugging, which saves intermediate photos.");
-			System.err.println("  -e EdgeThreshold values can range from 0 (everything is an edge) up to about 1000 or more.");
-			System.err.println("  -c NumColours is the number of discrete values within each colour channel (2..256).");
+			System.err
+					.println("Arguments: [-d] [-e EdgeThreshold] [-c NumColours] photo1.jpg photo2.jpg ...");
+			System.err
+					.println("  -d means turn on debugging, which saves intermediate photos.");
+			System.err
+					.println("  -e EdgeThreshold values can range from 0 (everything is an edge) up to about 1000 or more.");
+			System.err
+					.println("  -c NumColours is the number of discrete values within each colour channel (2..256).");
+			System.err.println("  -g means turn on gpu processing by javaCL.");
 			System.exit(1);
 		}
 		if ("-d".equals(args[currArg])) {
@@ -521,9 +706,16 @@ public class Cartoonify {
 		}
 		if ("-c".equals(args[currArg])) {
 			numColours = Integer.parseInt(args[currArg + 1]);
-			System.out.println("Using " + numColours + " discrete colours per channel.");
+			System.out.println("Using " + numColours
+					+ " discrete colours per channel.");
 			currArg += 2;
 		}
+		if ("-g".equals(args[currArg])) {
+			gpuActive = true;
+			System.out.println("Using GPU to assist processing.");
+			currArg += 1;
+		}
+
 		Cartoonify cartoon = new Cartoonify();
 		for (; currArg < args.length; currArg++) {
 			String name = args[currArg];
@@ -534,49 +726,59 @@ public class Cartoonify {
 			}
 			final String baseName = name.substring(0, dot);
 			final String extn = name.substring(dot).toLowerCase();
+			long start, end;
+
 			cartoon.loadPhoto(name);
 			final long time0 = System.currentTimeMillis();
+			if (gpuActive) {
+				cartoon.gauBlurSobEdgeAndReduceColors(threshold, numColours,
+						debug, baseName, extn);
+			} else {
+				// This sequence of processing commands is done to every photo.
+				start = time0;
+				cartoon.gaussianBlur();
+				end = System.currentTimeMillis();
+				if (debug) {
+					System.out.println("  gaussian blurring took "
+							+ (end - start) / 1e3 + " secs.");
+					cartoon.savePhoto(baseName + "_blurred" + extn);
+				}
+				// cartoon.grayscale();
+				start = System.currentTimeMillis();
+				cartoon.sobelEdgeDetect(threshold);
+				end = System.currentTimeMillis();
+				int edges = cartoon.numImages() - 1;
+				if (debug) {
+					System.out.println("  sobel edge detect took "
+							+ (end - start) / 1e3 + " secs.");
+					cartoon.savePhoto(baseName + "_edges" + extn);
+				}
 
-			// This sequence of processing commands is done to every photo.
-			long start = time0;
-			cartoon.gaussianBlur();
-			long end = System.currentTimeMillis();
-			if (debug) {
-				System.out.println("  gaussian blurring took " + (end - start) / 1e3 + " secs.");
-				cartoon.savePhoto(baseName + "_blurred" + extn);
+				// now convert the original image into a few discrete colours
+				cartoon.cloneImage(0);
+				start = System.currentTimeMillis();
+				cartoon.reduceColours(numColours);
+				end = System.currentTimeMillis();
+				if (debug) {
+					System.out.println("  colour reduction took  "
+							+ (end - start) / 1e3 + " secs.");
+					cartoon.savePhoto(baseName + "_colours" + extn);
+				}
+				cartoon.cloneImage(edges);
 			}
-			// cartoon.grayscale();
-			start = System.currentTimeMillis();
-			cartoon.sobelEdgeDetect(threshold);
-			end = System.currentTimeMillis();
-			int edges = cartoon.numImages() - 1;
-			if (debug) {
-				System.out.println("  sobel edge detect took " + (end - start) / 1e3 + " secs.");
-				cartoon.savePhoto(baseName + "_edges" + extn);
-			}
-
-			// now convert the original image into a few discrete colours
-			cartoon.cloneImage(0);
-			start = System.currentTimeMillis();
-			cartoon.reduceColours(numColours);
-			end = System.currentTimeMillis();
-			if (debug) {
-				System.out.println("  colour reduction took  " + (end - start) / 1e3 + " secs.");
-				cartoon.savePhoto(baseName + "_colours" + extn);
-			}
-
-			cartoon.cloneImage(edges);
 			start = System.currentTimeMillis();
 			cartoon.mergeMask(cartoon.white);
 			end = System.currentTimeMillis();
 			if (debug) {
-				System.out.println("  masking edges took     " + (end - start) / 1e3 + " secs.");
+				System.out.println("  masking edges took     " + (end - start)
+						/ 1e3 + " secs.");
 			}
 
 			final String newName = baseName + "_cartoon" + extn;
 			cartoon.savePhoto(newName);
 			end = System.currentTimeMillis();
-			System.out.println("Done " + name + " -> " + newName + " in " + (end - time0) / 1000.0 + " secs.");
+			System.out.println("Done " + name + " -> " + newName + " in "
+					+ (end - time0) / 1000.0 + " secs.");
 			cartoon.clear();
 		}
 	}
